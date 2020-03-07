@@ -26,10 +26,10 @@ def str_to_datetime(s):
     return dt
 
 
-def filter(filename):
+def filter(filename, outfile):
     with open(filename) as fr:
         reader = csv.reader(fr)
-        with open('filtered.csv', 'w') as fw:
+        with open('outfile', 'w') as fw:
             writer = csv.writer(fw)
             for row in reader:
                 if row[2] in ['1.0', '3.0']:
@@ -49,6 +49,22 @@ def create_prices_dict(filename):
                 prices_dict[cusip][month] = None
             else:
                 prices_dict[cusip][month] = abs(float(row[4]))
+    return prices_dict
+
+
+def create_market_cap_dict(filename):
+    prices_dict = {}
+    with open(filename) as fr:
+        reader = csv.reader(fr)
+        for row in reader:
+            cusip = row[3]
+            if cusip not in prices_dict:
+                prices_dict[cusip] = {}
+            month = row[1][3:]
+            if row[5] == '':
+                prices_dict[cusip][month] = None
+            else:
+                prices_dict[cusip][month] = abs(float(row[5]))
     return prices_dict
 
 
@@ -145,21 +161,21 @@ def add_quarter(date):
     return f'{month_str}/{str(year)}'
 
 
-def calc_weights(portfolio, prices_dict, date, weighted):
+def calc_weights(portfolio, prices_dict, market_caps_dict, date, weighted):
     weights = {}
     if weighted:
-        price_sum = 0.0
+        total_cap = 0.0
         for cusip in portfolio:
-            if date in prices_dict[cusip]:
-                price = prices_dict[cusip][date]
-                if price is not None:
-                    price_sum += price
+            if date in market_caps_dict[cusip]:
+                cap = market_caps_dict[cusip][date]
+                if cap is not None:
+                    total_cap += cap
 
         for cusip in portfolio:
-            if date in prices_dict[cusip]:
-                price = prices_dict[cusip][date]
-                if price is not None:
-                    weight = price * len(portfolio) / price_sum
+            if date in market_caps_dict[cusip]:
+                cap = market_caps_dict[cusip][date]
+                if cap is not None:
+                    weight = cap * len(portfolio) / total_cap
                     weights[cusip] = weight
         #print(f'sum for date {date}: {sum(list(weights.values()))}')
         #print(price_sum)
@@ -169,13 +185,13 @@ def calc_weights(portfolio, prices_dict, date, weighted):
     return weights
 
 
-def roll_window(portfolios, start_date, prices_dict, weighted=False):
+def roll_window(portfolios, start_date, prices_dict, market_caps_dict, weighted=False):
     performances = {}
     end_date = add_quarter(start_date)
     for i, portfolio in enumerate(portfolios):
         start_sum = 0.0
         end_sum = 0.0
-        weights = calc_weights(portfolio, prices_dict, start_date, weighted)
+        weights = calc_weights(portfolio, prices_dict, market_caps_dict, start_date, weighted)
         for cusip in portfolio:
             if start_date not in prices_dict[cusip]:
                 continue
@@ -199,7 +215,7 @@ def roll_window(portfolios, start_date, prices_dict, weighted=False):
     return performances, portfolios
 
 
-def backtest(prices_dict, start_date, weighted=False):
+def backtest(prices_dict, market_caps_dict, start_date, weighted=False):
     portfolios = pick_portfolios(prices_dict, start_date)
     with open('out.csv', 'a') as fw:
         ranges = ['100+', '60-100', '30-60', '15-30', '5-15', '0-5']
@@ -208,7 +224,7 @@ def backtest(prices_dict, start_date, weighted=False):
         writer = csv.DictWriter(fw, fieldnames=fieldnames)
         writer.writeheader()
         for i in range(1, 41):
-            performances, portfolios = roll_window(portfolios, start_date, prices_dict, weighted)
+            performances, portfolios = roll_window(portfolios, start_date, prices_dict, market_caps_dict, weighted)
             #pprint.pprint(performances)
             prev_start = start_date
             start_date = add_quarter(start_date)
@@ -232,11 +248,12 @@ def backtest(prices_dict, start_date, weighted=False):
 
 
 if __name__=='__main__':
-    filter('raw.csv')
+    filter('raw.csv', 'filtered.csv')
     prices = create_prices_dict('filtered.csv')
+    market_caps = create_market_cap_dict('filtered.csv')
     returns = create_returns_dict(prices)
-    backtest(prices, '12/2008')
-    backtest(prices, '12/2008', True)
+    backtest(prices, market_caps, '12/2008')
+    backtest(prices, market_caps, '12/2008', True)
     '''
     portfolios = pick_portfolios(prices, '09/2010')
     mean_returns = get_mean_returns(portfolios, returns)
